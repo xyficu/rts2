@@ -3,12 +3,12 @@ bin_PROGRAMS = rts2-sensor-dummy rts2-sensor-multi rts2-sensor-ms257 rts2-sensor
 	rts2-sensor-fram-weather rts2-sensor-bart-rain rts2-sensor-ms260 rts2-sensor-l150 \
 	rts2-sensor-osn rts2-sensor-system rts2-sensor-apcups rts2-sensor-nut \
 	rts2-sensor-cloud4 rts2-sensor-brooks-356 rts2-sensor-bootes1 rts2-sensor-aag rts2-sensor-pwc \
-	rts2-sensor-hygrowin rts2-sensor-fram rts2-sensor-flwo-weather rts2-sensor-thorlaser rts2-sensor-thorlabs-PM100D \
+	rts2-sensor-hygrowin rts2-sensor-fram rts2-sensor-flwo-weather rts2-sensor-flwo-me rts2-sensor-thorlaser rts2-sensor-thorlabs-PM100D \
 	rts2-sensor-arduino rts2-sensor-mdm-bait rts2-sensor-colores rts2-sensor-micropirani-925 rts2-sensor-dws-t5 \
 	rts2-sensor-cryocon rts2-sensor-keithley-scpi rts2-sensor-colamp \
 	rts2-sensor-keithley-487 rts2-sensor-lakeshore-325 rts2-sensor-triax \
 	rts2-sensor-mm2500 rts2-sensor-lakeshore-330 rts2-sensor-lakeshore-340 \
-	rts2-sensor-agilent-e3631a rts2-sensor-aws-mlab
+	rts2-sensor-agilent-e3631a rts2-sensor-aws-mlab rts2-sensor-clarity
 
 
 noinst_HEADERS = davisudp.h fram-weather.h framudp.h davis.h aag.h pwc-ioctl.h tps534-oak.h
@@ -88,6 +88,8 @@ rts2_sensor_agilent_e3631a_SOURCES = agilent-e3631a.cpp
 
 rts2_sensor_aws_mlab_SOURCES = aws-mlab.cpp
 
+rts2_sensor_clarity_SOURCES = clarity.cpp
+
 if SUNCYGMAC
 EXTRA_DIST += tps534.cpp tps534-oak.c niratir.cpp
 else
@@ -101,6 +103,8 @@ rts2_sensor_niratir_SOURCES = niratir.cpp
 endif
 
 rts2_sensor_flwo_weather_SOURCES = flwo-weather.cpp
+
+rts2_sensor_flwo_me_SOURCES = flwo-me.cpp
 
 rts2_sensor_thorlaser_SOURCES = thorlaser.cpp
 
