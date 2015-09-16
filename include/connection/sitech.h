@@ -29,22 +29,25 @@ namespace rts2teld
  */
 typedef struct
 {
-	int address;             //* Module address
+	int8_t address;          //* Module address
 	int32_t x_pos;           //* X (Alt/Dec) motor position
 	int32_t y_pos;           //* Y (Az/RA) motor position
 	int32_t x_enc;           //* X (Alt/Dec) encoder readout
 	int32_t y_enc;           //* Y (Ax/RA) encoder readout
-	char keypad;             //* Keypad status
-	char x_bit;              //* XBits
-	char y_bit;              //* YBits
-	char extra_bit;          //* Extra bits
+	// bit 17
+	int8_t keypad;           //* Keypad status
+	int8_t x_bit;            //* XBits
+	int8_t y_bit;            //* YBits
+	int8_t extra_bit;        //* Extra bits
 	int16_t ain_1;           //* Analog input 1
 	int16_t ain_2;           //* Analog input 2
+	// bit 25
 	uint32_t mclock;         //* Millisecond clock
 	int8_t temperature;      //* Temperature (probably CPU)
 	int8_t y_worm_phase;     //* Az/RA worm phase
-	int32_t x_last;          //* Alt/Dec motor location at last Alt/Dec scope encoder location change
-	int32_t y_last;          //* Az/RA motor location at last Az/RA scope encoder location change
+	// bit 31
+	uint8_t x_last[4];       //* Alt/Dec motor location at last Alt/Dec scope encoder location change
+	uint8_t y_last[4];       //* Az/RA motor location at last Az/RA scope encoder location change
 } SitechAxisStatus;
 
 typedef struct
@@ -62,12 +65,88 @@ typedef struct
 	int32_t k;		//* Handpaddle status bits
 } SitechControllerStatus;
 
+typedef struct
+{
+	int32_t x_acc;		//* Alt/Dec Default Acceleration
+	int32_t x_backlash;	//* Alt/Dec Backlash
+	int16_t x_error_limit;	//* Alt/Dec Error Limit
+	int16_t x_p_gain;	//* Alt/Dec Proportional Gain
+	int16_t x_i_gain;	//* Alt/Dec Integral Gain
+	int16_t x_d_gain;	//* Alt/Dec Derivative Gain
+	int16_t x_o_limit;	//* Alt/Dec Output Limit, 0xFF = 100.0
+	int16_t x_c_limit;	//* Alt/Dec Current Limit * 100
+	int16_t x_i_limit;	//* Alt/Dec Integral Limit
+	int8_t x_bits;		//* XBits
+
+	int8_t p_0;		//* Unused / Padding??
+
+	int32_t y_acc;		//* Azm/RA Default Acceleration
+	int32_t y_backlash;	//* Azm/RA Backlash
+	int16_t y_error_limit;	//* Azm/RA Error Limit
+	int16_t y_p_gain;	//* Azm/RA Proportional Gain
+	int16_t y_i_gain;	//* Azm/RA Integral Gain
+	int16_t y_d_gain;	//* Azm/RA Derivative Gain
+	int16_t y_o_limit;	//* Azm/RA Output Limit, 0xFF = 100.0
+	int16_t y_c_limit;	//* Azm/RA Current Limit * 100
+	int16_t y_i_limit;	//* Azm/RA Integral Limit
+	int8_t y_bits;		//* YBits
+
+	int8_t p_1;		//* Unused / Padding??
+
+	int8_t address;		//* Address
+
+	int8_t p_2;		//* Unused / padding??
+
+	int32_t eq_rate;	//* Equatorial Rate
+	int32_t eq_updown;	//* Equatorial UpDown adjust
+	
+	int32_t tracking_goal;	//* Tracking Platform Goal
+
+	int16_t latitude;	//* Latitude * 100, MSB FIRST!!
+
+	int32_t y_enc_ticks;	//* Azm Scope Encoder Ticks Per Rev, MSB FIRST!!
+	int32_t x_enc_ticks;	//* Alt Scope Encoder Ticks Per Rev, MSB FIRST!!
+
+	int32_t y_mot_ticks;	//* Azm Motor Ticks Per Rev, MSB FIRST!!
+	int32_t x_mot_ticks;	//* Alt Motor Ticks Per Rev, MSB FIRST!!
+
+	int32_t x_slew_rate;	//* Alt/Dec Slew Rate
+	int32_t y_slew_rate;	//* Azm/RA Slew Rate
+
+	int32_t x_pan_rate;	//* Alt/Dec Pan Rate
+	int32_t y_pan_rate;	//* Azm/RA Pan Rate
+
+	int32_t x_guide_rate;	//* Alt/Dec Guide Rate
+	int32_t y_guide_rate;	//* Azm/RA Guide Rate
+
+	int8_t pec_auto;	//* R/A PEC Auto Sync Enable (if low bit = 1), or PicServo Comm Timeout??
+
+	int8_t p_3;		//* Unused / Padding??
+	int8_t p_4;		//* Baud Rate??
+
+	int8_t p_5;		//* Unused / Padding??
+
+	int8_t p_6;		//* 1 = Enable Argo Navis, 2 = Enable Sky Commander
+
+	int8_t p_7;		//* Unused / Padding??
+
+	int32_t local_deg;	//* Local Search Degrees * 100
+	int32_t local_speed;	//* Local Search Speed, arcsec per sec
+
+	int32_t backhlash_speed;	//* Backlash speed
+
+	int32_t y_pec_ticks;	//* RA/Azm PEC Ticks
+
+	int8_t p_8;		//* Unused / Padding??
+	int8_t p_9;		//* Unused / Padding??	 
+} SitechControllerConfiguration;
+
 /**
  * Parameters of the request (XXR) command.
  *
  * @author Petr Kubanek <petr@kubanek.net>
  */
-class SitechAxisRequest
+class SitechYAxisRequest
 {
 	public:
 		int32_t x_dest;          //* X (Alt/Dec) motor destination, in motor counts
@@ -78,6 +157,17 @@ class SitechAxisRequest
 		int32_t y_rate_adder;    //* Y (Az/RA) rate adder
 		int32_t x_rate_adder_t;  //* X (Alt/Dec) rate adder time (in servo loops; 1953 would be 1 second)
 		int32_t y_rate_adder_t;  //* Y (Az/RA) rate adder time (in servo loops; 1953 would be 1 second)
+};
+
+class SitechXAxisRequest
+{
+	public:
+		int32_t x_dest;          //* X (Alt/Dec) motor destination, in motor counts
+		int32_t x_speed;         //* X (Alt/Dec) speed (base rate), in counts per servo loop
+		int32_t y_dest;          //* Y (Az/RA) motor destination, in motor counts
+		int32_t y_speed;         //* Y (Az/RA) speed (base rate), in counts per servo loop
+		int8_t x_bits;
+		int8_t y_bits;
 };
 
 /**
@@ -103,6 +193,26 @@ class ConnSitech: public rts2core::ConnSerial
 		 * Initialize connection. Switch to checksumed mode.
 		 */
 		virtual int init ();
+
+		/**
+		 * Switch communication to ASCI mode.
+		 */
+		void switchToASCI ();
+
+		/**
+		 * Switch communication to binary mode.
+		 */
+		void switchToBinary ();
+
+		/**
+		 * Reset controller errors.
+		 */
+		void resetErrors ();
+
+		/**
+		 * Reset SiTech controller.
+		 */
+		void resetController ();
 
 		/**
 		 * Execute command on the axis. Don't expect any return.
@@ -141,7 +251,9 @@ class ConnSitech: public rts2core::ConnSerial
 		 * @param axis          commanded axis
 		 * @param ax_request    request to send on axis
 		 */
-		void sendAxisRequest (char axis, SitechAxisRequest &ax_request);
+		void sendYAxisRequest (SitechYAxisRequest &ax_request);
+
+		void sendXAxisRequest (SitechXAxisRequest &ax_request);
 
 		void setSiTechValue (const char axis, const char *val, int value);
 
@@ -150,17 +262,26 @@ class ConnSitech: public rts2core::ConnSerial
 		 */
 		void getControllerStatus (SitechControllerStatus &controller_status);
 
+		void getConfiguration (SitechControllerConfiguration &config);
+
 	private:
 		/**
 		 * Reads XXS, XXR and YXR status replies.
 		 */
 		void readAxisStatus (SitechAxisStatus &ax_status);
 
+		/**
+		 * Reads configuration of Sitech controller.
+		 */
+		void readConfiguration (SitechControllerConfiguration &config);
+
 		void writePortChecksumed (const char *cmd, size_t len);
 
 		uint8_t calculateChecksum (const char *buf, size_t len);
 
-		uint16_t binaryChecksum (const char *dbuf, size_t blen);
+		uint16_t binaryChecksum (const char *dbuf, size_t blen, bool invertH);
+
+		bool binary;
 };
 
 }

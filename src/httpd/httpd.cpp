@@ -47,6 +47,8 @@ using namespace Magick;
 #define OPT_TESTSCRIPT          OPT_LOCAL + 78
 #define OPT_DEBUG_TESTSCRIPT    OPT_LOCAL + 79
 #define OPT_BB_QUEUE            OPT_LOCAL + 80
+#define OPT_SSL_CERT            OPT_LOCAL + 81
+#define OPT_SSL_KEY             OPT_LOCAL + 82
 
 using namespace XmlRpc;
 
@@ -187,10 +189,10 @@ void XmlDevCameraClient::scriptProgress (double start, double end)
 	getMaster ()->sendValueAll (scriptStart);
 	getMaster ()->sendValueAll (scriptEnd);
 
-	((XmlRpcd *) getMaster ())->scriptProgress (start, end);
+	((HttpD *) getMaster ())->scriptProgress (start, end);
 }
 
-void XmlRpcd::doOpValue (const char *v_name, char oper, const char *operand)
+void HttpD::doOpValue (const char *v_name, char oper, const char *operand)
 {
 	Value *ov = getOwnValue (v_name);
 	if (ov == NULL)
@@ -212,38 +214,38 @@ void XmlRpcd::doOpValue (const char *v_name, char oper, const char *operand)
 	delete nv;
 }
 
-void XmlRpcd::clientNewDataConn (rts2core::Connection *conn, int data_conn)
+void HttpD::clientNewDataConn (rts2core::Connection *conn, int data_conn)
 {
 	for (std::list <rts2json::AsyncAPI *>::iterator iter = asyncAPIs.begin (); iter != asyncAPIs.end (); iter++)
 		(*iter)->newDataConn (conn, data_conn);
 }
 
-void XmlRpcd::clientDataReceived (rts2core::Connection *conn, rts2core::DataAbstractRead *data)
+void HttpD::clientDataReceived (rts2core::Connection *conn, rts2core::DataAbstractRead *data)
 {
 	for (std::list <rts2json::AsyncAPI *>::iterator iter = asyncAPIs.begin (); iter != asyncAPIs.end (); iter++)
 		(*iter)->dataReceived (conn, data);
 }
 
-void XmlRpcd::clientFullDataReceived (rts2core::Connection *conn, rts2core::DataChannels *data)
+void HttpD::clientFullDataReceived (rts2core::Connection *conn, rts2core::DataChannels *data)
 {
 	for (std::list <rts2json::AsyncAPI *>::iterator iter = asyncAPIs.begin (); iter != asyncAPIs.end (); iter++)
 		(*iter)->fullDataReceived (conn, data);
 }
 
-void XmlRpcd::clientExposureFailed (Connection *conn, int status)
+void HttpD::clientExposureFailed (Connection *conn, int status)
 {
 	for (std::list <rts2json::AsyncAPI *>::iterator iter = asyncAPIs.begin (); iter != asyncAPIs.end (); iter++)
 		(*iter)->exposureFailed (conn, status);
 }
 
-void XmlRpcd::bbSend (double t)
+void HttpD::bbSend (double t)
 {
 	bbLastSuccess->setValueDouble (t);
 	sendValueAll (bbLastSuccess);
 }
 
 #ifdef RTS2_HAVE_PGSQL
-void XmlRpcd::confirmSchedule (rts2db::Plan &_plan)
+void HttpD::confirmSchedule (rts2db::Plan &_plan)
 {
 	rts2core::Connection *selConn = getOpenConnection (DEVICE_TYPE_SELECTOR);
 	if (selConn == NULL)
@@ -448,7 +450,7 @@ rts2image::imageProceRes XmlDevCameraClient::processImage (rts2image::Image * im
 	return rts2image::IMAGE_KEEP_COPY;
 }
 
-int XmlRpcd::info ()
+int HttpD::info ()
 {
 	bbQueueSize->setValueInteger (events.bbServers.queueSize ());
 #ifdef RTS2_HAVE_PGSQL
@@ -458,7 +460,7 @@ int XmlRpcd::info ()
 #endif
 }
 
-int XmlRpcd::idle ()
+int HttpD::idle ()
 {
 	rts2json::HTTPServer::asyncIdle ();
 #ifdef RTS2_HAVE_PGSQL
@@ -469,7 +471,7 @@ int XmlRpcd::idle ()
 }
 
 #ifndef RTS2_HAVE_PGSQL
-int XmlRpcd::willConnect (NetworkAddress *_addr)
+int HttpD::willConnect (NetworkAddress *_addr)
 {
 	if (_addr->getType () < getDeviceType ()
 		|| (_addr->getType () == getDeviceType ()
@@ -479,13 +481,21 @@ int XmlRpcd::willConnect (NetworkAddress *_addr)
 }
 #endif
 
-int XmlRpcd::processOption (int in_opt)
+int HttpD::processOption (int in_opt)
 {
 	switch (in_opt)
 	{
 		case 'p':
 			rpcPort = atoi (optarg);
 			break;
+#ifdef RTS2_SSL
+		case OPT_SSL_CERT:
+			sslCert = optarg;
+			break;
+		case OPT_SSL_KEY:
+			sslKey = optarg;
+			break;
+#endif
 		case OPT_STATE_CHANGE:
 			stateChangeFile = optarg;
 			break;
@@ -515,7 +525,7 @@ int XmlRpcd::processOption (int in_opt)
 	return 0;
 }
 
-int XmlRpcd::init ()
+int HttpD::init ()
 {
 #ifdef RTS2_HAVE_PGSQL
 	int ret = DeviceDb::init ();
@@ -533,6 +543,16 @@ int XmlRpcd::init ()
 
 	if (printDebug ())
 		XmlRpc::setVerbosity (5);
+
+#ifdef RTS2_SSL
+	if (sslKey == "" || sslCert == "") {
+		Configuration::instance ()->getString ("xmlrpcd", "ssl_cert", sslCert, "");
+		Configuration::instance ()->getString ("xmlrpcd", "ssl_key", sslKey, "");
+	}
+	if (sslKey == "" || sslCert == "")
+		abort();
+	initSSL(sslCert.c_str(), sslKey.c_str());
+#endif
 
 	XmlRpcServer::bindAndListen (rpcPort);
 	XmlRpcServer::enableIntrospection (true);
@@ -593,7 +613,7 @@ int XmlRpcd::init ()
 	return ret;
 }
 
-void XmlRpcd::addSelectSocks (fd_set &read_set, fd_set &write_set, fd_set &exp_set)
+void HttpD::addSelectSocks (fd_set &read_set, fd_set &write_set, fd_set &exp_set)
 {
 #ifdef RTS2_HAVE_PGSQL
 	DeviceDb::addSelectSocks (read_set, write_set, exp_set);
@@ -603,7 +623,7 @@ void XmlRpcd::addSelectSocks (fd_set &read_set, fd_set &write_set, fd_set &exp_s
 	XmlRpcServer::addToFd (&read_set, &write_set, &exp_set);
 }
 
-void XmlRpcd::selectSuccess (fd_set &read_set, fd_set &write_set, fd_set &exp_set)
+void HttpD::selectSuccess (fd_set &read_set, fd_set &write_set, fd_set &exp_set)
 {
 #ifdef RTS2_HAVE_PGSQL
 	DeviceDb::selectSuccess (read_set, write_set, exp_set);
@@ -613,7 +633,7 @@ void XmlRpcd::selectSuccess (fd_set &read_set, fd_set &write_set, fd_set &exp_se
 	XmlRpcServer::checkFd (&read_set, &write_set, &exp_set);
 }
 
-void XmlRpcd::signaledHUP ()
+void HttpD::signaledHUP ()
 {
 #ifdef RTS2_HAVE_PGSQL
 	DeviceDb::signaledHUP ();
@@ -623,7 +643,7 @@ void XmlRpcd::signaledHUP ()
 	reloadEventsFile ();
 }
 
-void XmlRpcd::connectionRemoved (rts2core::Connection *conn)
+void HttpD::connectionRemoved (rts2core::Connection *conn)
 {
 	for (std::list <XmlDevCameraClient *>::iterator iter = camClis.begin (); iter != camClis.end ();)
 	{
@@ -652,7 +672,7 @@ void XmlRpcd::connectionRemoved (rts2core::Connection *conn)
 #endif
 }
 
-void XmlRpcd::asyncFinished (XmlRpcServerConnection *source)
+void HttpD::asyncFinished (XmlRpcServerConnection *source)
 {
 	for (std::list <rts2json::AsyncAPI *>::iterator iter = asyncAPIs.begin (); iter != asyncAPIs.end (); iter++)
 	{
@@ -662,7 +682,7 @@ void XmlRpcd::asyncFinished (XmlRpcServerConnection *source)
 	XmlRpcServer::asyncFinished (source);
 }
 
-void XmlRpcd::removeConnection (XmlRpcServerConnection *source)
+void HttpD::removeConnection (XmlRpcServerConnection *source)
 {
 	for (std::list <rts2json::AsyncAPI *>::iterator iter = asyncAPIs.begin (); iter != asyncAPIs.end (); iter++)
 	{
@@ -673,9 +693,9 @@ void XmlRpcd::removeConnection (XmlRpcServerConnection *source)
 }
 
 #ifdef RTS2_HAVE_PGSQL
-XmlRpcd::XmlRpcd (int argc, char **argv): DeviceDb (argc, argv, DEVICE_TYPE_XMLRPC, "XMLRPC")
+HttpD::HttpD (int argc, char **argv): DeviceDb (argc, argv, DEVICE_TYPE_XMLRPC, "HTTPD")
 #else
-XmlRpcd::XmlRpcd (int argc, char **argv): rts2core::Device (argc, argv, DEVICE_TYPE_XMLRPC, "XMLRPC")
+HttpD::HttpD (int argc, char **argv): rts2core::Device (argc, argv, DEVICE_TYPE_XMLRPC, "HTTPD")
 #endif
 ,XmlRpcServer (),
   events(this),
@@ -784,11 +804,15 @@ XmlRpcd::XmlRpcd (int argc, char **argv): rts2core::Device (argc, argv, DEVICE_T
 	addOption (OPT_DEBUG_TESTSCRIPT, "debug-test-script", 0, "print test script debugging");
 	addOption (OPT_TESTSCRIPT, "test-script", 1, "test script to run on background");
 	addOption (OPT_BB_QUEUE, "bb-queue", 1, "name of queue used for BB scheduling");
+#ifdef RTS2_SSL
+	addOption (OPT_SSL_CERT, "ssl-cert", 1, "OpenSSL ca certification file");
+	addOption (OPT_SSL_KEY, "ssl-key", 1, "OpenSSL private key file");
+#endif
 	XmlRpc::setVerbosity (0);
 }
 
 
-XmlRpcd::~XmlRpcd ()
+HttpD::~HttpD ()
 {
 	for (std::vector <rts2json::Directory *>::iterator id = directories.begin (); id != directories.end (); id++)
 		delete *id;
@@ -803,7 +827,7 @@ XmlRpcd::~XmlRpcd ()
 #endif /* RTS2_HAVE_LIBJPEG */
 }
 
-rts2core::DevClient * XmlRpcd::createOtherType (rts2core::Connection * conn, int other_device_type)
+rts2core::DevClient * HttpD::createOtherType (rts2core::Connection * conn, int other_device_type)
 {
 	switch (other_device_type)
 	{
@@ -822,7 +846,7 @@ rts2core::DevClient * XmlRpcd::createOtherType (rts2core::Connection * conn, int
 	}
 }
 
-void XmlRpcd::deviceReady (rts2core::Connection * conn)
+void HttpD::deviceReady (rts2core::Connection * conn)
 {
 #ifdef RTS2_HAVE_PGSQL
 	DeviceDb::deviceReady (conn);
@@ -847,7 +871,7 @@ void XmlRpcd::deviceReady (rts2core::Connection * conn)
 	}
 }
 
-int XmlRpcd::setValue (rts2core::Value *old_value, rts2core::Value *new_value)
+int HttpD::setValue (rts2core::Value *old_value, rts2core::Value *new_value)
 {
 	if (old_value == bbCadency)
 	{
@@ -869,7 +893,7 @@ int XmlRpcd::setValue (rts2core::Value *old_value, rts2core::Value *new_value)
 #endif
 }
 
-void XmlRpcd::stateChangedEvent (rts2core::Connection * conn, rts2core::ServerState * new_state)
+void HttpD::stateChangedEvent (rts2core::Connection * conn, rts2core::ServerState * new_state)
 {
 	double now = getNow ();
 	// look if there is some state change command entry, which match us..
@@ -890,7 +914,7 @@ void XmlRpcd::stateChangedEvent (rts2core::Connection * conn, rts2core::ServerSt
 		(*iter)->stateChanged (conn);
 }
 
-void XmlRpcd::valueChangedEvent (rts2core::Connection * conn, rts2core::Value * new_value)
+void HttpD::valueChangedEvent (rts2core::Connection * conn, rts2core::Value * new_value)
 {
 	double now = getNow ();
 	// look if there is some state change command entry, which match us..
@@ -919,7 +943,7 @@ void XmlRpcd::valueChangedEvent (rts2core::Connection * conn, rts2core::Value * 
 		(*iter)->valueChanged (conn, new_value);
 }
 
-void XmlRpcd::message (Message & msg)
+void HttpD::message (Message & msg)
 {
 // log message to DB, if database is present
 #ifdef RTS2_HAVE_PGSQL
@@ -964,7 +988,7 @@ void XmlRpcd::message (Message & msg)
 	messages.push_back (msg);
 }
 
-int XmlRpcd::commandAuthorized (rts2core::Connection *conn)
+int HttpD::commandAuthorized (rts2core::Connection *conn)
 {
 	if (conn->isCommand ("test_restart"))
 	{
@@ -979,21 +1003,21 @@ int XmlRpcd::commandAuthorized (rts2core::Connection *conn)
 #endif
 }
 
-void XmlRpcd::fileModified (struct inotify_event *event)
+void HttpD::fileModified (struct inotify_event *event)
 {
 #ifdef RTS2_HAVE_PGSQL
 	rts2db::MasterConstraints::clearCache ();
 #endif
 }
 
-std::string XmlRpcd::addSession (std::string _username, time_t _timeout)
+std::string HttpD::addSession (std::string _username, time_t _timeout)
 {
 	Session *s = new Session (_username, time(NULL) + _timeout);
 	sessions[s->getSessionId()] = s;
 	return s->getSessionId ();
 }
 
-bool XmlRpcd::existsSession (std::string sessionId)
+bool HttpD::existsSession (std::string sessionId)
 {
 	std::map <std::string, Session*>::iterator iter = sessions.find (sessionId);
 	if (iter == sessions.end ())
@@ -1003,7 +1027,7 @@ bool XmlRpcd::existsSession (std::string sessionId)
 	return true;
 }
 
-bool XmlRpcd::getDebug ()
+bool HttpD::getDebug ()
 {
 #ifdef RTS2_HAVE_PGSQL
 	return rts2db::DeviceDb::getDebug ();
@@ -1012,7 +1036,7 @@ bool XmlRpcd::getDebug ()
 #endif
 }
 
-void XmlRpcd::sendValueAll (rts2core::Value * value)
+void HttpD::sendValueAll (rts2core::Value * value)
 {
 #ifdef RTS2_HAVE_PGSQL
 	return rts2db::DeviceDb::sendValueAll (value);
@@ -1021,7 +1045,7 @@ void XmlRpcd::sendValueAll (rts2core::Value * value)
 #endif
 }
 
-rts2db::CamList *XmlRpcd::getCameras ()
+rts2db::CamList *HttpD::getCameras ()
 {
 #ifdef RTS2_HAVE_PGSQL
 	return &(rts2db::DeviceDb::cameras);
@@ -1030,7 +1054,7 @@ rts2db::CamList *XmlRpcd::getCameras ()
 #endif
 }
 
-rts2core::connections_t *XmlRpcd::getConnections ()
+rts2core::connections_t *HttpD::getConnections ()
 {
 #ifdef RTS2_HAVE_PGSQL
 	return rts2db::DeviceDb::getConnections ();
@@ -1039,7 +1063,7 @@ rts2core::connections_t *XmlRpcd::getConnections ()
 #endif
 }
 
-void XmlRpcd::getOpenConnectionType (int devType, rts2core::connections_t::iterator &cur)
+void HttpD::getOpenConnectionType (int devType, rts2core::connections_t::iterator &cur)
 {
 #ifdef RTS2_HAVE_PGSQL
 	rts2db::DeviceDb::getOpenConnectionType (devType, cur);
@@ -1048,29 +1072,29 @@ void XmlRpcd::getOpenConnectionType (int devType, rts2core::connections_t::itera
 #endif
 }
 
-bool XmlRpcd::isPublic (struct sockaddr_in *saddr, const std::string &path)
+bool HttpD::isPublic (struct sockaddr_in *saddr, const std::string &path)
 {
 	if (authorizeLocalhost () || ntohl (saddr->sin_addr.s_addr) != INADDR_LOOPBACK)
 		return events.isPublic (path);
 	return true;
 }
 
-const char *XmlRpcd::getDefaultImageLabel ()
+const char *HttpD::getDefaultImageLabel ()
 {
 	return defLabel;
 }
 
-void XmlRpcd::scriptProgress (double start, double end)
+void HttpD::scriptProgress (double start, double end)
 {
 	maskState (EXEC_MASK_SCRIPT, EXEC_SCRIPT_RUNNING, "script running", start, end);
 }
 
-void XmlRpcd::sendBB ()
+void HttpD::sendBB ()
 {
 	events.bbServers.sendUpdate ();
 }
 
-void XmlRpcd::updateObservation (int obs_id, int plan_id)
+void HttpD::updateObservation (int obs_id, int plan_id)
 {
 #ifdef RTS2_HAVE_PGSQL
 	rts2db::Plan p(plan_id);
@@ -1082,7 +1106,7 @@ void XmlRpcd::updateObservation (int obs_id, int plan_id)
 #endif // RTS2_HAVE_PGSQL
 }
 
-void XmlRpcd::reloadEventsFile ()
+void HttpD::reloadEventsFile ()
 {
 	if (stateChangeFile != NULL)
 	{
@@ -1094,23 +1118,23 @@ void XmlRpcd::reloadEventsFile ()
 }
 
 #ifdef RTS2_HAVE_PGSQL
-bool XmlRpcd::verifyDBUser (std::string username, std::string pass, rts2core::UserPermissions *userPermissions)
+bool HttpD::verifyDBUser (std::string username, std::string pass, rts2core::UserPermissions *userPermissions)
 {
 	return verifyUser (username, pass, userPermissions);
 }
 #else
-bool XmlRpcd::verifyDBUser (std::string username, std::string pass, rts2core::UserPermissions *userPermissions)
+bool HttpD::verifyDBUser (std::string username, std::string pass, rts2core::UserPermissions *userPermissions)
 {
 	return userLogins.verifyUser (username, pass);
 }
 
 bool rts2xmlrpc::verifyUser (std::string username, std::string pass, rts2core::UserPermissions *userPermissions)
 {
-	return ((XmlRpcd *) getMasterApp ())->verifyDBUser (username, pass, userPermissions);
+	return ((HttpD *) getMasterApp ())->verifyDBUser (username, pass, userPermissions);
 }
 #endif /* RTS2_HAVE_PGSQL */
 
-int XmlRpcd::startTestScript ()
+int HttpD::startTestScript ()
 {
 	for (std::list <const char *>::iterator iter = testScripts.begin (); iter != testScripts.end (); iter++)
 	{
@@ -1131,6 +1155,6 @@ int XmlRpcd::startTestScript ()
 
 int main (int argc, char **argv)
 {
-	XmlRpcd device (argc, argv);
+	HttpD device (argc, argv);
 	return device.run ();
 }

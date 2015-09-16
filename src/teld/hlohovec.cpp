@@ -302,8 +302,6 @@ int Hlohovec::resetMount ()
 int Hlohovec::startResync ()
 {
 	deleteTimers (RTS2_HLOHOVEC_AUTOSAVE);
-	if (getState () & TEL_MOVING)
-		tracking->setValueBool (true);
 	int32_t dc;
 	int ret = sky2counts (tAc, dc);
 	if (ret)
@@ -316,9 +314,7 @@ int Hlohovec::startResync ()
 int Hlohovec::isMoving ()
 {
 	callAutosave ();
-	if (getState () & TEL_MOVING)
-		tracking->setValueBool (true);
-	if (tracking->getValueBool () && raDrive->isInPositionMode ())
+	if (tracking->getValueInteger () > 0 && raDrive->isInPositionMode ())
 	{
 		if (raDrive->isMovingPosition ())
 		{
@@ -342,7 +338,7 @@ int Hlohovec::isMoving ()
 			raDrive->setTargetSpeed (TRACK_SPEED);
 		}
 	}
-	if ((tracking->getValueBool () && raDrive->isInPositionMode ()) || (!tracking->getValueBool () && raDrive->isMoving ()) || decDrive->isMoving ())
+	if ((tracking->getValueInteger () > 0 && raDrive->isInPositionMode ()) || (tracking->getValueInteger () == 0 && raDrive->isMoving ()) || decDrive->isMoving ())
 		return 0;
 	return -2;
 }
@@ -371,13 +367,13 @@ int Hlohovec::setTo (double set_ra, double set_dec)
 	int32_t dc;
 	int32_t off;
 	getHomeOffset (off);
-	int ret = sky2counts (&eq, ac, dc, ln_get_julian_from_sys (), off);
+	int ret = sky2counts (&eq, ac, dc, ln_get_julian_from_sys (), off, 0);
 	if (ret)
 		return -1;
 	raDrive->setCurrentPos (ac);
 	decDrive->setCurrentPos (dc);
 	callAutosave ();
-	if (tracking->getValueBool ())
+	if (tracking->getValueInteger () > 0)
 		raDrive->setTargetSpeed (TRACK_SPEED);
 	return 0;
 }
@@ -403,7 +399,6 @@ int Hlohovec::setToPark ()
 
 int Hlohovec::startPark ()
 {
-	tracking->setValueBool (false);
 	if (parkPos)
 	{
 		parking = true;
@@ -430,7 +425,7 @@ void Hlohovec::setDiffTrack (double dra, double ddec)
 		throw rts2core::Error ("cannot call info in setDiffTrack");
 	if (!raDrive->isInPositionMode () || !raDrive->isMovingPosition ())
 	{
-		if (tracking->getValueBool ())
+		if (tracking->getValueInteger () > 0)
 			raDrive->setTargetSpeed (TRACK_SPEED + dra * SPEED_ARCDEGSEC);
 		else
 			raDrive->setTargetSpeed (dra * SPEED_ARCDEGSEC);

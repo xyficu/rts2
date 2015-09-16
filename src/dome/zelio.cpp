@@ -67,6 +67,12 @@
 
 // dead man timeout
 #define ZI_DEADMAN_MASK  0x007f
+// dead man bit
+#define ZI_DEADN_MASK    0x0001
+// timeout mask
+#define ZI_TIMEOUT_MASK  0x7f80
+// user timeout mask
+#define ZI_USER_TIO_MASK 0x8000
 // emergency button reset
 #define ZI_EMMERGENCY_R  0x2000
 // bit for Q9 - remote switch
@@ -79,11 +85,12 @@
 // bit mask for rain ignore
 #define ZI_IGNORE_RAIN   0x8000
 
-#define OPT_BATTERY      OPT_LOCAL + 501
-#define OPT_Q8_NAME      OPT_LOCAL + 502
-#define OPT_Q9_NAME      OPT_LOCAL + 503
-#define OPT_QA_NAME      OPT_LOCAL + 504
-#define OPT_NO_POWER     OPT_LOCAL + 505
+#define OPT_BATTERY                OPT_LOCAL + 501
+#define OPT_Q8_NAME                OPT_LOCAL + 502
+#define OPT_Q9_NAME                OPT_LOCAL + 503
+#define OPT_QA_NAME                OPT_LOCAL + 504
+#define OPT_NO_POWER               OPT_LOCAL + 505
+#define OPT_DONT_RESTART_OPENING   OPT_LOCAL + 506
 
 namespace rts2dome
 {
@@ -106,7 +113,7 @@ class Zelio:public Dome
 	protected:
 		virtual int processOption (int in_opt);
 
-		virtual int init ();
+		virtual int initHardware ();
 
 		virtual int setValue (rts2core::Value *oldValue, rts2core::Value *newValue);
 
@@ -123,6 +130,7 @@ class Zelio:public Dome
 	private:
 		HostString *host;
 		int16_t deadManNum;
+		bool restartDuringOpening;
 
 		enum { ZELIO_UNKNOW, ZELIO_BOOTES3_WOUTPLUGS, ZELIO_BOOTES3, ZELIO_COMPRESSOR_WOUTPLUGS, ZELIO_COMPRESSOR, ZELIO_SIMPLE, ZELIO_FRAM } zelioModel;
 
@@ -141,6 +149,7 @@ class Zelio:public Dome
 		rts2core::ValueString *zelioModelString;
 
 		rts2core::ValueInteger *deadTimeout;
+		rts2core::ValueIntegerMinMax *domeTimeout;
 
 		rts2core::ValueBool *rain;
 		rts2core::ValueBool *openingIgnoreRain;
@@ -228,7 +237,7 @@ int Zelio::setBitsInput (uint16_t reg, uint16_t mask, bool value)
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
+		logStream (MESSAGE_ERROR) << "setBitsInput " << err << sendLog;
 		return -1;
 	}
 	return 0;
@@ -278,12 +287,12 @@ int Zelio::startOpen ()
 		}
 
 		zelioConn->writeHoldingRegisterMask (ZREG_J1XT1, ZI_DEADMAN_MASK, deadTimeout->getValueInteger ());
-		zelioConn->writeHoldingRegister (ZREG_J2XT1, 0);
-		zelioConn->writeHoldingRegister (ZREG_J2XT1, 1);
+		zelioConn->writeHoldingRegisterMask (ZREG_J2XT1, ZI_DEADN_MASK, 0);
+		zelioConn->writeHoldingRegisterMask (ZREG_J2XT1, ZI_DEADN_MASK, 1);
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
+		logStream (MESSAGE_ERROR) << "startOpen " << err << sendLog;
 		return -1;
 	}
 	deadManNum = 0;
@@ -307,7 +316,11 @@ bool Zelio::isGoodWeather ()
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
+		logStream (MESSAGE_ERROR) << "isGoodWeather " << err << sendLog;
+		// problem occured during opening, and we can restart connection - wait until
+		// until it is restarted in isOpened call, don't check for values we cannot receive
+		if (restartDuringOpening == true && (getState () & DOME_DOME_MASK) == DOME_OPENING)
+			return Dome::isGoodWeather ();
 		return false;
 	}
 	if (haveRainSignal)
@@ -386,8 +399,26 @@ long Zelio::isOpened ()
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
-		return -1;
+		logStream (MESSAGE_ERROR) << "isOpened " << err << sendLog;
+
+		if (restartDuringOpening == false)
+			return -1;
+
+		// try to reinit connection
+
+		sleep (2);
+
+		try
+		{
+			zelioConn->init ();
+			zelioConn->readHoldingRegisters (ZREG_O1XT1, 2, regs);
+			sendSwInfo (regs);
+		}
+		catch (rts2core::ConnError er)
+		{
+			logStream (MESSAGE_ERROR) << "isOpened restart " << er << sendLog;
+			return -1;
+		}
 	}
 	// check states of end switches..
 	switch (zelioModel)
@@ -422,17 +453,25 @@ int Zelio::startClose ()
 	{
 		uint16_t reg;
 		zelioConn->writeHoldingRegisterMask (ZREG_J1XT1, ZI_DEADMAN_MASK, 0);
-		// update automode status..
-		zelioConn->readHoldingRegisters (ZREG_O4XT1, 1, &reg);
-		automode->setValueBool (reg & ZS_SW_AUTO);
-		// reset ignore rain value
-		if (ignoreRain->getValueBool ())
+		try
 		{
-	  		setBitsInput (ZREG_J1XT1, ZI_IGNORE_RAIN, false);
-			ignoreRain->setValueBool (false);
+			// update automode status..
+			zelioConn->readHoldingRegisters (ZREG_O4XT1, 1, &reg);
+			automode->setValueBool (reg & ZS_SW_AUTO);
+			// reset ignore rain value
+			if (ignoreRain && ignoreRain->getValueBool ())
+			{
+		  		setBitsInput (ZREG_J1XT1, ZI_IGNORE_RAIN, false);
+				ignoreRain->setValueBool (false);
+			}
+			if (automode->getValueBool () == false)
+			{
+				return 0;
+			}
 		}
-		if (automode->getValueBool () == false)
+		catch (rts2core::ConnError err)
 		{
+			logStream (MESSAGE_WARNING) << "cannot read dome status after issuing close command" << sendLog;
 			return 0;
 		}
 	}
@@ -440,7 +479,7 @@ int Zelio::startClose ()
 	{
 		if (closeErrorReported == false)
 		{
-			logStream (MESSAGE_ERROR) << err << sendLog;
+			logStream (MESSAGE_ERROR) << "startClose " << err << sendLog;
 			closeErrorReported = true;
 		}
 	 	return -1;
@@ -460,7 +499,7 @@ long Zelio::isClosed ()
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
+		logStream (MESSAGE_ERROR) << "isClosed " << err << sendLog;
 		return -1;
 	}
 	// check states of end switches..
@@ -513,6 +552,9 @@ int Zelio::processOption (int in_opt)
 		case OPT_QA_NAME:
 			QA_name = optarg;
 			break;
+		case OPT_DONT_RESTART_OPENING:
+			restartDuringOpening = false;
+			break;
 		default:
 			return Dome::processOption (in_opt);
 	}
@@ -528,11 +570,11 @@ void Zelio::postEvent (rts2core::Event *event)
 			{
 			  	try
 				{
-					zelioConn->writeHoldingRegister (ZREG_J2XT1, deadManNum);
+					zelioConn->writeHoldingRegisterMask (ZREG_J2XT1, ZI_DEADN_MASK, deadManNum);
 				}
 				catch (rts2core::ConnError err)
 				{
-					logStream (MESSAGE_ERROR) << err << sendLog;
+					logStream (MESSAGE_ERROR) << "EVENT_DEADBUT " << err << sendLog;
 				}
 				deadManNum = (deadManNum + 1) % 2;
 				addTimer (deadTimeout->getValueInteger () / 5.0, event);
@@ -544,6 +586,7 @@ void Zelio::postEvent (rts2core::Event *event)
 
 Zelio::Zelio (int argc, char **argv):Dome (argc, argv)
 {
+	restartDuringOpening = true;
 	zelioModel = ZELIO_UNKNOW;
 	haveRainSignal = true;
 	haveBatteryLevel = false;
@@ -552,8 +595,13 @@ Zelio::Zelio (int argc, char **argv):Dome (argc, argv)
 
 	createValue (zelioModelString, "zelio_model", "String with Zelio model", false);
 
-	createValue (deadTimeout, "dead_timeout", "timeout for dead man button", false, RTS2_VALUE_WRITABLE);
+	createValue (deadTimeout, "dead_timeout", "[s] timeout for dead man button", false, RTS2_VALUE_WRITABLE);
 	deadTimeout->setValueInteger (60);
+
+	createValue (domeTimeout, "dome_timeout", "[s] dome timeout", false, RTS2_VALUE_WRITABLE);
+	domeTimeout->setValueInteger (-1);
+	domeTimeout->setMin (-1);
+	domeTimeout->setMax (0xff);
 
 	createValue (automode, "automode", "state of automatic dome mode", false, RTS2_DT_ONOFF);
 	createValue (ignoreAutomode, "automode_ignore", "do not switch to off when not in automatic", false, RTS2_VALUE_WRITABLE);
@@ -592,6 +640,8 @@ Zelio::Zelio (int argc, char **argv):Dome (argc, argv)
 	addOption (OPT_Q8_NAME, "Q8-name", 1, "name of the Q8 switch");
 	addOption (OPT_Q9_NAME, "Q9-name", 1, "name of the Q9 switch");
 	addOption (OPT_QA_NAME, "QA-name", 1, "name of the QA switch");
+
+	addOption (OPT_DONT_RESTART_OPENING, "dont-restart-opening", 0, "do not restart connection if it breaks during opening");
 }
 
 Zelio::~Zelio (void)
@@ -609,7 +659,7 @@ int Zelio::info ()
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
+		logStream (MESSAGE_ERROR) << "info " << err << sendLog;
 		return -1;
 	}
 
@@ -692,12 +742,8 @@ int Zelio::info ()
 	return Dome::info ();
 }
 
-int Zelio::init ()
+int Zelio::initHardware ()
 {
-	int ret = Dome::init ();
-	if (ret)
-		return ret;
-
 	if (host == NULL)
 	{
 		logStream (MESSAGE_ERROR) << "You must specify zelio hostname (with -z option)." << sendLog;
@@ -714,7 +760,7 @@ int Zelio::init ()
 	}
 	catch (rts2core::ConnError er)
 	{
-		logStream (MESSAGE_ERROR) << er << sendLog;
+		logStream (MESSAGE_ERROR) << "initHardware " << er << sendLog;
 		return -1;
 	}
 
@@ -759,7 +805,7 @@ int Zelio::init ()
 
 	createZelioValues ();
 
-	ret = info ();
+	int ret = info ();
 	if (ret)
 		return ret;
 
@@ -893,6 +939,12 @@ void Zelio::createZelioValues ()
 		createValue (openingIgnoreRain, "opening_ignore", "ignore rain during opening", false);
 		createValue (ignoreRain, "ignore_rain", "whenever rain is ignored (know issue with interference between dome and rain sensor)", false, RTS2_VALUE_WRITABLE);
 	}
+	else
+	{
+		rain = NULL;
+		openingIgnoreRain = NULL;
+		ignoreRain = NULL;
+	}
 
 	createValue (J1XT1, "J1XT1", "first input", false, RTS2_DT_HEX | RTS2_VALUE_WRITABLE);
 	createValue (J2XT1, "J2XT1", "second input", false, RTS2_DT_HEX | RTS2_VALUE_WRITABLE);
@@ -949,10 +1001,27 @@ int Zelio::setValue (rts2core::Value *oldValue, rts2core::Value *newValue)
 			zelioConn->writeHoldingRegister (ZREG_J4XT1, newValue->getValueInteger ());
 			return 0;
 		}
+		else if (oldValue == domeTimeout)
+		{
+			// prepare new bits for timeout
+			if (newValue->getValueInteger () > 0)
+			{
+				int16_t nreg = newValue->getValueInteger () & 0x00ff;
+				nreg = (nreg << 7) & ZI_TIMEOUT_MASK;
+				// user switched timeout
+				nreg |= 0x8000;
+				// put in value
+				zelioConn->writeHoldingRegisterMask (ZREG_J2XT1, ZI_USER_TIO_MASK | ZI_TIMEOUT_MASK, nreg);
+			}
+			else
+			{
+				zelioConn->writeHoldingRegisterMask (ZREG_J2XT1, ZI_USER_TIO_MASK, 0);
+			}
+		}
 	}
 	catch (rts2core::ConnError err)
 	{
-		logStream (MESSAGE_ERROR) << err << sendLog;
+		logStream (MESSAGE_ERROR) << "setValue " << oldValue->getName () << " " << err << sendLog;
 		return -2;
 	}
 	return Dome::setValue (oldValue, newValue);
@@ -967,13 +1036,23 @@ void Zelio::sendSwInfo (uint16_t regs[2])
 		case ZELIO_FRAM:
 		case ZELIO_COMPRESSOR_WOUTPLUGS:
 		case ZELIO_COMPRESSOR:
+			if (swCloseRight->getValueBool () != (bool) (regs[1] & ZO_EP_CLOSE))
+				logStream (MESSAGE_INFO) << "close right changed value to " << (bool) (regs[1] & ZO_EP_CLOSE) << sendLog;
 			swCloseRight->setValueBool (regs[1] & ZO_EP_CLOSE);
+
+			if (swOpenRight->getValueBool () != (bool) (regs[1] & ZO_EP_OPEN))
+				logStream (MESSAGE_INFO) << "open right changed value to " << (bool) (regs[1] & ZO_EP_OPEN) << sendLog;
 			swOpenRight->setValueBool (regs[1] & ZO_EP_OPEN);
 
 			sendValueAll (swCloseRight);
 			sendValueAll (swOpenRight);
 
+			if (motOpenRight->getValueBool () != (bool) (regs[1] & ZO_MOT_OPEN))
+				logStream (MESSAGE_INFO) << "motor open right changed value to " << (bool) (regs[1] & ZO_MOT_OPEN) << sendLog;
 			motOpenRight->setValueBool (regs[1] & ZO_MOT_OPEN);
+
+			if (motCloseRight->getValueBool () != (bool) (regs[1] & ZO_MOT_CLOSE))
+				logStream (MESSAGE_INFO) << "motor close right changed value to " << (bool) (regs[1] & ZO_MOT_CLOSE) << sendLog;
 			motCloseRight->setValueBool (regs[1] & ZO_MOT_CLOSE);
 
 			sendValueAll (motOpenRight);
@@ -992,13 +1071,23 @@ void Zelio::sendSwInfo (uint16_t regs[2])
 			sendValueAll (blockCloseRight);
 
 		case ZELIO_SIMPLE:
+			if (swOpenLeft->getValueBool () != (bool) (regs[0] & ZO_EP_OPEN))
+				logStream (MESSAGE_INFO) << "open " << (zelioModel == ZELIO_SIMPLE ? "" : "left ") << "changed value to " << (bool) (regs[0] & ZO_EP_OPEN) << sendLog;
 			swOpenLeft->setValueBool (regs[0] & ZO_EP_OPEN);
+
+			if (swCloseLeft->getValueBool () != (bool) (regs[0] & ZO_EP_CLOSE))
+				logStream (MESSAGE_INFO) << "close " << (zelioModel == ZELIO_SIMPLE ? "" : "left ") << "changed value to " << (bool) (regs[0] & ZO_EP_CLOSE) << sendLog;
 			swCloseLeft->setValueBool (regs[0] & ZO_EP_CLOSE);
 
 			sendValueAll (swOpenLeft);
 			sendValueAll (swCloseLeft);
 
+			if (motOpenLeft->getValueBool () != (bool) (regs[0] & ZO_MOT_OPEN))
+				logStream (MESSAGE_INFO) << "motor open " << (zelioModel == ZELIO_SIMPLE ? "" : "left ") << "changed value to " << (bool) (regs[0] & ZO_MOT_OPEN) << sendLog;
 			motOpenLeft->setValueBool (regs[0] & ZO_MOT_OPEN);
+
+			if (motCloseLeft->getValueBool () != (bool) (regs[0] & ZO_MOT_CLOSE))
+				logStream (MESSAGE_INFO) << "motor close " << (zelioModel == ZELIO_SIMPLE ? "" : "left ") << "changed value to " << (bool) (regs[0] & ZO_MOT_CLOSE) << sendLog;
 			motCloseLeft->setValueBool (regs[0] & ZO_MOT_CLOSE);
 
 			sendValueAll (motOpenLeft);

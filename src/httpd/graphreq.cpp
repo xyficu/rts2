@@ -77,7 +77,7 @@ void CurrentPosition::authorizedExecute (XmlRpc::XmlRpcSource *source, std::stri
 	}
 
 	// get current target position..
-	XmlRpcd *serv = (XmlRpcd *) getMasterApp ();
+	HttpD *serv = (HttpD *) getMasterApp ();
 	rts2core::Connection *conn = serv->getOpenConnection (DEVICE_TYPE_MOUNT);
 	rts2core::Value *val;
 	if (conn)
@@ -113,7 +113,7 @@ void CurrentPosition::authorizedExecute (XmlRpc::XmlRpcSource *source, std::stri
 		val = conn->getValue ("current");
 		if (val && val->getValueInteger () >= 0)
 		{
-			tar = createTarget (val->getValueInteger (), Configuration::instance ()->getObserver ());
+			tar = createTarget (val->getValueInteger (), Configuration::instance ()->getObserver (), Configuration::instance ()->getObservatoryAltitude ());
 			if (tar)
 			{
 				tar->getAltAz (&hrz, JD);
@@ -124,7 +124,7 @@ void CurrentPosition::authorizedExecute (XmlRpc::XmlRpcSource *source, std::stri
 		val = conn->getValue ("next");
 		if (val && val->getValueInteger () >= 0)
 		{
-			tar = createTarget (val->getValueInteger (), Configuration::instance ()->getObserver ());
+			tar = createTarget (val->getValueInteger (), Configuration::instance ()->getObserver (), Configuration::instance ()->getObservatoryAltitude ());
 			if (tar)
 			{
 				tar->getAltAz (&hrz, JD);
@@ -233,7 +233,7 @@ void Graph::printDevices (const char* &response_type, char* &response, size_t &r
 	std::ostringstream _os;
 	printHeader (_os, "Record value list", NULL, "/css/calendar.css");
 	_os << "<script type='text/javascript' src='"
-		<< ((XmlRpcd *)getMasterApp ())->getPagePrefix () << "/js/date.js'></script>\n<table>";
+		<< ((HttpD *)getMasterApp ())->getPagePrefix () << "/js/date.js'></script>\n<table>";
 	int i = 1;
 	for (rts2db::RecvalsSet::iterator iter = rs.begin (); iter != rs.end (); iter++, i++)
 	{

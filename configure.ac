@@ -69,6 +69,14 @@ AC_TYPE_SIZE_T
 AC_HEADER_TIME
 AC_STRUCT_TM
 
+AC_ARG_ENABLE(ssl,
+[  --enable-ssl            enable openssl encryption in httpd],
+[case "${enableval}" in
+	yes) ssl=yes ;;
+	no)  ssl=no ;;
+	*) AC_MSG_ERROR(bad value ${enableval} for --enable-ssl) ;;
+esac],[ssl=no])
+
 AC_ARG_ENABLE(focusing,
 [  --disable-focusing      disables focusing in camd (=>camd doesn't need cfitsio to build)],
 [case "${enableval}" in
@@ -380,7 +388,7 @@ AC_SUBST(LIB_K8055)
 
 # check for SI3097
 AC_ARG_WITH(si3097,
-[  --with-si307           path to Spectral Instruments SI3097 PCI card driver, build SI CCD support],
+[  --with-si3097        path to Spectral Instruments SI3097 PCI card driver, build SI CCD support],
 SI3097="${withval}";
 INC_SI3097="-I${SI3097}",
 [SI3097=no])
@@ -540,6 +548,16 @@ AC_SUBST(CENTRALD_PORT)
 
 
 # Checks for libraries.
+
+AH_TEMPLATE([SSL], [using openssl in httpd])
+if test "x${ssl}" != "xno"; then
+  PKG_CHECK_MODULES(SSL, [openssl >= 1.0.1],,AC_MSG_RESULT(not found))
+fi
+AM_CONDITIONAL(SSL, test "x$SSL_LIBS" != x)
+if test "x$SSL_LIBS" != x; then
+  AC_DEFINE_UNQUOTED(SSL, "1", [using openssl in httpd])
+fi
+
 
 if test "x${cfitsio}" != "xno"; then
   if test "x${cfitsio}" != "xyes"; then
@@ -880,6 +898,7 @@ AC_OUTPUT([Makefile
 	   include/rts2json/Makefile
 	   include/vermes/Makefile
 	   include/xmlrpc++/Makefile
+	   include/pluto/Makefile
 	   conf/Makefile
 	   conf/event.d/Makefile
 	   contrib/Makefile
@@ -887,6 +906,7 @@ AC_OUTPUT([Makefile
 	   doc/doxyfile
 	   lib/Makefile
 	   lib/xmlrpc++/Makefile
+	   lib/pluto/Makefile
 	   lib/rts2/Makefile
 	   lib/rts2/vermes/Makefile
 	   lib/rts2fits/Makefile
@@ -907,6 +927,7 @@ AC_OUTPUT([Makefile
 	   src/camd/urvc2/Makefile
 	   src/camd/apogee/Makefile
 	   src/camd/edtsao/Makefile
+	   src/camd/si8821/Makefile
 	   src/dome/Makefile
 	   src/dome/zelio/Makefile
 	   src/filterd/Makefile
@@ -937,6 +958,7 @@ AC_OUTPUT([Makefile
 	   src/httpd/Makefile
 	   src/scheduler/Makefile
 	   src/bb/Makefile
+	   src/pluto/Makefile
 	   scripts/rts2saf/Makefile
 	   scripts/rts2saf/rts2saf/Makefile]
 )
@@ -961,6 +983,7 @@ echo "
   libarchive    ${libarchive}
   crypt         ${LIB_CRYPT}
   libgjson	${JSONGLIB_CFLAGS} ${JSONGLIB_LIBS}
+  openssl       ${ssl}
 
 CCDs:
   alta          ${ALTA}
@@ -971,6 +994,7 @@ CCDs:
   fli           ${FLI}
   miccd         ${MICCD}
   sbig          ${SBIG}
+  SI3097        ${SI3097}
 
 MOUNTs:
   paralib       ${PARALIB}

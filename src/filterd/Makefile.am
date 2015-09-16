@@ -1,4 +1,4 @@
-bin_PROGRAMS = rts2-filterd-ifw rts2-filterd-dummy rts2-filterd-fw102c
+bin_PROGRAMS = rts2-filterd-ifw rts2-filterd-dummy rts2-filterd-fw102c rts2-filterd-apm
 
 EXTRA_DIST = 
 
@@ -10,6 +10,8 @@ rts2_filterd_ifw_SOURCES = ifw.cpp
 rts2_filterd_dummy_SOURCES = dummy.cpp
 
 rts2_filterd_fw102c_SOURCES = fw102c.cpp
+
+rts2_filterd_apm_SOURCES = apm.cpp
 
 if FLI
 bin_PROGRAMS += rts2-filterd-fli

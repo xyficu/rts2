@@ -88,9 +88,6 @@ class D50:public Fork
 		virtual int isParking () { return isMoving (); };
 		virtual int endPark ();
 
-		virtual int stopWorm ();
-		virtual int startWorm ();
-
 		virtual void setDiffTrack (double dra, double ddec);
 
 		virtual int updateLimits ();
@@ -432,13 +429,13 @@ int D50::runD50 ()
 	logStream (MESSAGE_DEBUG) << "****** D50:runD50 ()" << sendLog;
 	if (!(getState () & TEL_MOVING))
 	{
-		if ((!tracking->getValueBool ()) && raDrive->isInStepperMode ())
+		if (tracking->getValueInteger () == 0 && raDrive->isInStepperMode ())
 		{
 			logStream (MESSAGE_DEBUG) << "****** runD50 () - setting tracking to off - DS mode" << sendLog;
                         raDrive->setTargetSpeed ( 0, true );
                         raDrive->setMode (TGA_MODE_DS);
                         //raDrive->info ();
-		} else if (tracking->getValueBool () && !raDrive->isInStepperMode ()) 
+		} else if (tracking->getValueInteger () > 0 && !raDrive->isInStepperMode ()) 
 		{
 			logStream (MESSAGE_DEBUG) << "****** runD50 () - setting tracking to on - SM mode" << sendLog;
 			if (!raDrive->isMoving ())
@@ -478,16 +475,11 @@ int D50::startResync ()
 {
 	logStream (MESSAGE_DEBUG) << "****** startResync ()" << sendLog;
         //deleteTimers (RTS2_D50_AUTOSAVE);
-        if (!tracking->getValueBool () && !parking)
-	{
-		logStream (MESSAGE_DEBUG) << "------ zapinam tracking0! tracking=" << tracking->getValueBool () << ", parking=" << parking << sendLog;
-                startWorm ();
-	}
         int32_t dc;
         int ret = sky2counts (tAc, dc);
         if (ret)
                 return -1;
-	// this maight be redundant local check, we make to be sure not make flip and harm ourselfs...
+	// this maight be redundant local check, we do it to be sure not to make flip and harm ourselfs...
 	if (dc < dcMin || dc > dcMax)
 	{
 		logStream (MESSAGE_ERROR) << "dc value out of limits!" << sendLog;
@@ -506,14 +498,8 @@ int D50::isMoving ()
 {
 	logStream (MESSAGE_DEBUG) << "****** isMoving ()" << sendLog;
         //callAutosave ();
-	logStream (MESSAGE_DEBUG) << "------ isMoving: getState=" << getState () << ", tracking=" << tracking->getValueBool () << ", parking=" << parking << ", raDrive->isMoving=" << raDrive->isMoving () << ", raDrive->isInPositionMode=" << raDrive->isInPositionMode () << ", decDrive->isMoving=" << decDrive->isMoving () << sendLog;
-        /*if ((getState () & TEL_MOVING) && !tracking->getValueBool () && !parking)
-	{
-		//logStream (MESSAGE_DEBUG) << "------ zapinam tracking!" << sendLog;
-		logStream (MESSAGE_DEBUG) << "------ zapinam tracking1! tracking=" << tracking->getValueBool () << ", parking=" << parking << sendLog;
-                startWorm ();
-	}*/
-        if (tracking->getValueBool () && raDrive->isInPositionMode ())
+	logStream (MESSAGE_DEBUG) << "------ isMoving: getState=" << getState () << ", tracking=" << tracking->getValueInteger () << ", parking=" << parking << ", raDrive->isMoving=" << raDrive->isMoving () << ", raDrive->isInPositionMode=" << raDrive->isInPositionMode () << ", decDrive->isMoving=" << decDrive->isMoving () << sendLog;
+        if (tracking->getValueInteger () > 0 && raDrive->isInPositionMode ())
         {
                 if (raDrive->isMovingPosition ())
                 {
@@ -540,7 +526,7 @@ int D50::isMoving ()
                         //raDrive->info ();
                 }
         }
-        if ((tracking->getValueBool () && raDrive->isInPositionMode ()) || (!tracking->getValueBool () && raDrive->isMoving ()) || decDrive->isMoving ())
+        if ((tracking->getValueInteger () > 0 && raDrive->isInPositionMode ()) || (tracking->getValueInteger () == 0 && raDrive->isMoving ()) || decDrive->isMoving ())
 		return USEC_SEC / 10;
         return -2;
 }
@@ -562,7 +548,6 @@ int D50::stopMove ()
 {
 	logStream (MESSAGE_DEBUG) << "****** stopMove ()" << sendLog;
         //addTimer (5, new rts2core::Event (RTS2_D50_AUTOSAVE));
-	stopWorm ();
 	if (raDrive->isMoving () || decDrive->isMoving ())	// otherwise it's only about cleaning the TEL_MOVING state, we don't want to clean parking flag and other things then
 	{
         	parking = false;
@@ -594,7 +579,7 @@ int D50::setTo (double set_ra, double set_dec)
         int ret = sky2counts (&eq, ac, dc, ln_get_julian_from_sys (), off);
         if (ret)
                 return -1;
-        //if (tracking->getValueBool ())
+        //if (tracking->getValueInteger () > 0)
 	//{
 	//	raDrive->setMode (TGA_MODE_DS);
 	//	raDrive->setTargetSpeed ( 0, true );
@@ -603,7 +588,7 @@ int D50::setTo (double set_ra, double set_dec)
         raDrive->setCurrentPos (ac);
         decDrive->setCurrentPos (dc);
         //callAutosave ();
-        if (tracking->getValueBool ())
+        if (tracking->getValueInteger () > 0)
 	{
                 raDrive->setMode (TGA_MODE_SM);
                 //raDrive->info ();
@@ -635,7 +620,6 @@ int D50::setToPark ()
 int D50::startPark ()
 {
 	logStream (MESSAGE_DEBUG) << "****** startPark ()" << sendLog;
-        stopWorm ();
         if (parkPos)
         {
                 parking = true;
@@ -670,28 +654,6 @@ int D50::endPark ()
         return 0;
 }
 
-int D50::stopWorm ()
-{
-	logStream (MESSAGE_DEBUG) << "****** stopWorm ()" << sendLog;
-	if (tracking->getValueBool ())
-	{
-		tracking->setValueBool (false);
-		sendValueAll (tracking);
-	}
-        return 0;
-}
-
-int D50::startWorm ()
-{
-	logStream (MESSAGE_DEBUG) << "****** startWorm ()" << sendLog;
-	if (!tracking->getValueBool ())
-	{
-		tracking->setValueBool (true);
-		sendValueAll (tracking);
-	}
-        return 0;
-}
-
 void D50::setDiffTrack (double dra, double ddec)
 {
 	logStream (MESSAGE_DEBUG) << "****** setDiffTrack ()" << sendLog;
@@ -701,7 +663,7 @@ void D50::setDiffTrack (double dra, double ddec)
                 throw rts2core::Error ("cannot call info in setDiffTrack");
         if (!raDrive->isInPositionMode () || !raDrive->isMovingPosition ())
         {
-                if (tracking->getValueBool ())
+                if (tracking->getValueInteger () > 0)
 		{
                         //raDrive->setTargetSpeed (TRACK_SPEED + dra * SPEED_ARCDEGSEC);
 			//TODO: tady se musi dodelat trackovani pres REMOTES
@@ -804,21 +766,6 @@ int D50::setValue (rts2core::Value * old_value, rts2core::Value * new_value)
                 matchGuideDec (new_value->getValueInteger ());
                 return 0;
         }*/
-        else if (old_value == tracking)
-        {
-                //raDrive->setTargetSpeed (((rts2core::ValueBool *) new_value)->getValueBool () ? TRACK_SPEED : 0, false);
-                if (((rts2core::ValueBool *) new_value)->getValueBool ())
-                {
-			if (parking || (getState () & TEL_MASK_MOVING) == TEL_PARKED)
-				return -2;
-                        startWorm ();
-                }
-                else
-                {
-			stopWorm ();
-                }
-		return 0;
-        }
 	/* else if (old_value == wormRa)
 	{
 		return tel_write_unit (1,
